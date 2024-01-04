@@ -13,6 +13,7 @@ import numpy as np
 import easyocr
 import pyautogui
 import threading
+import keyboard
 
 # 定义截图区域，(x1, y1) 是左上角坐标，(x2, y2) 是右下角坐标
 gTranX1, gTranY1, gTranX2, gTranY2 = 10, 10, 510, 510  # 例如，从屏幕上截取一个500x500像素的区域
@@ -122,10 +123,11 @@ def translate_text():
     text_output.delete("1.0", tk.END)
     text_output.insert(tk.END, result)
     
-def on_key_press(event):
+def keyboardCallback():
     translate_text()
-    #print("Key Pressed: ", event.keysym)
-    
+# 监听全局快捷键 Ctrl+Shift+U
+keyboard.add_hotkey('f4', keyboardCallback)
+
 #创建ui
 # 创建主窗口
 root = tk.Tk()
@@ -146,6 +148,5 @@ text_output.pack()
 # 创建选择区域按钮
 tranRect_button = ttk.Button(root, text="选择翻译区域", command=create_drawable_overlay)
 tranRect_button.pack(expand=True)
-root.bind('<F4>', on_key_press)         # 对于 F4 键
 # 运行主循环
 root.mainloop()
