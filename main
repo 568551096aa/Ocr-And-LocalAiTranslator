@@ -1,0 +1,151 @@
+# -*- coding: utf-8 -*-
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import tkinter as tk
+from tkinter import ttk
+
+# 确保Tesseract可执行文件在你的PATH中，或者在这里明确它的路径
+# pytesseract.pytesseract.tesseract_cmd = r'<完整的Tesseract可执行文件路径>'
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']='TRUE'
+from PIL import Image
+from PIL import ImageGrab
+import numpy as np
+import easyocr
+import pyautogui
+import threading
+
+# 定义截图区域，(x1, y1) 是左上角坐标，(x2, y2) 是右下角坐标
+gTranX1, gTranY1, gTranX2, gTranY2 = 10, 10, 510, 510  # 例如，从屏幕上截取一个500x500像素的区域
+
+
+# 矩形绘制和事件处理
+class DrawableCanvas:
+    def __init__(self):
+        self.root = None
+        self.canvas = None
+        self.rect = None
+        self.start_x = None
+        self.start_y = None
+        self.end_x = None
+        self.end_y = None
+
+    def create(self, root):
+        self.root = root
+        self.canvas = tk.Canvas(root, cursor="cross")
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.canvas.bind("<ButtonPress-1>", self.on_press)
+        self.canvas.bind("<B1-Motion>", self.on_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_release)
+
+    def on_press(self, event):
+        self.start_x = self.canvas.canvasx(event.x)
+        self.start_y = self.canvas.canvasy(event.y)
+        if not self.rect:
+            self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="red")
+
+    def on_drag(self, event):
+        cur_x = self.canvas.canvasx(event.x)
+        cur_y = self.canvas.canvasy(event.y)
+        if self.rect:
+            self.canvas.coords(self.rect, self.start_x, self.start_y, cur_x, cur_y)
+
+    def on_release(self, event):
+        self.end_x = self.canvas.canvasx(event.x)
+        self.end_y = self.canvas.canvasy(event.y)
+        print(f"Rectangle drawn from {(self.start_x, self.start_y)} to {(self.end_x, self.end_y)}")
+        self.close()
+
+    def close(self):
+        if self.rect:
+            self.canvas.delete(self.rect)
+            self.rect = None
+        self.root.destroy()
+
+#加载ai翻译模型
+tokenizer = AutoTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-zh")
+model = AutoModelForSeq2SeqLM.from_pretrained("Helsinki-NLP/opus-mt-en-zh")
+
+
+# 创建透明图层和十字鼠标图标的函数
+def create_drawable_overlay():
+    overlay = tk.Toplevel()
+    overlay.attributes('-alpha', 0.3)  # 设置透明度
+    overlay.attributes("-fullscreen", True) # 全屏显示透明窗口，可以根据需求自行调整大小
+    drawCan.create(overlay)
+    
+
+drawCan = DrawableCanvas()
+
+
+
+# 定义翻译函数  翻译区域选择功能
+def translate_text():
+    #截图指定区域
+    gTranX1, gTranY1, gTranX2, gTranY2 = drawCan.start_x, drawCan.start_y, drawCan.end_x, drawCan.end_y
+    image = ImageGrab.grab(bbox=(gTranX1, gTranY1, gTranX2, gTranY2))
+    print(gTranX1, gTranY1, gTranX2, gTranY2)
+    file_path = 'screenshot.png'
+
+    # 保存图像
+    #image.save(file_path)
+    #print(f"图像已保存在：{file_path}")
+    
+    # 将图像转换成RGB模式（如果需要），然后转换成NumPy数组
+    image_np = np.array(image.convert('RGB'))
+    reader = easyocr.Reader(['en'])  # 语言代码 'en' 是英文，'ch_sim' 是简体中文
+    results = reader.readtext(image_np)
+    recognized_text = ""
+    print(results)
+    for result in results:
+        text = result[-2]
+        recognized_text += text + ' '
+    print(recognized_text)
+    # 显示翻译后的文本
+    text_input.delete("1.0", tk.END)
+    text_input.insert(tk.END, recognized_text)
+    
+    # 这是模拟的API请求参数，实际情况可能会有所不同
+    text = recognized_text
+    #Tokenize the text
+    batch = tokenizer.prepare_seq2seq_batch(src_texts=[text])
+
+    # Make sure that the tokenized text does not exceed the maximum
+    # allowed size of 512
+    batch = tokenizer(text, truncation=True, padding='longest', return_tensors="pt", max_length=512)
+
+    # Perform the translation and decode the output
+    translation = model.generate(**batch)
+    result = tokenizer.batch_decode(translation, skip_special_tokens=True)
+
+    # 显示翻译后的文本
+    text_output.delete("1.0", tk.END)
+    text_output.insert(tk.END, result)
+    
+def on_key_press(event):
+    translate_text()
+    #print("Key Pressed: ", event.keysym)
+    
+#创建ui
+# 创建主窗口
+root = tk.Tk()
+root.title("ocr加上本地翻译工具")
+
+# 创建文本输入框
+text_input = tk.Text(root, height=20, width=100)
+text_input.pack()
+
+# 创建翻译按钮
+translate_button = ttk.Button(root, text="翻译(f4)", command=translate_text)
+translate_button.pack()
+
+# 创建文本输出框
+text_output = tk.Text(root, height=20, width=100)
+text_output.pack()
+
+# 创建选择区域按钮
+tranRect_button = ttk.Button(root, text="选择翻译区域", command=create_drawable_overlay)
+tranRect_button.pack(expand=True)
+root.bind('<F4>', on_key_press)         # 对于 F4 键
+# 运行主循环
+root.mainloop()
